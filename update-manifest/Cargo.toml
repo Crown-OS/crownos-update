@@ -1,0 +1,29 @@
+[package]
+name = "update-manifest"
+description = "The signed CrownOS release manifest: versions, the release chain and verified downloads"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+fetch = ["dep:ureq", "dep:tempfile"]
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+tempfile = { workspace = true, optional = true }
+ureq = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[test]]
+name = "real_gpg"
+required-features = ["fetch"]
+
+[lints]
+workspace = true

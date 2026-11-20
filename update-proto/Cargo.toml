@@ -1,0 +1,19 @@
+[package]
+name = "update-proto"
+description = "The crownos-ipc contract of crownos-updated"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+crownos-ipc = { git = "https://github.com/crown-os/crownos-ipc" }
+serde.workspace = true
+update-manifest.workspace = true
+
+[dev-dependencies]
+toml.workspace = true
+
+[lints]
+workspace = true

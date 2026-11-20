@@ -1,0 +1,47 @@
+[workspace]
+members = [
+  "update-manifest",
+  "update-proto",
+  "update-client",
+  "crownos-updated",
+  "crownos-update-notify",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/crown-os/crownos-update"
+
+[workspace.dependencies]
+update-manifest = { path = "update-manifest", default-features = false }
+update-proto = { path = "update-proto" }
+update-client = { path = "update-client" }
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", default-features = false }
+toml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
+
+[patch."https://github.com/crown-os/crownos-ipc"]
+crownos-ipc = { path = "../crownos-ipc" }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,22 @@
+[package]
+name = "crownos-update-notify"
+description = "Tells the user once about each new CrownOS release and opens Settings on click"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+tokio = { workspace = true, features = ["fs", "macros", "rt", "time"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+update-client.workspace = true
+zbus.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
