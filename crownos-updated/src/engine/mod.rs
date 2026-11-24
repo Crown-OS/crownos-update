@@ -5,7 +5,9 @@ mod apply;
 mod check;
 mod download;
 mod persisted;
+mod presets;
 mod restart;
+mod retire;
 mod startup;
 mod state;
 

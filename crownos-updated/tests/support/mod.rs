@@ -30,6 +30,7 @@ pub struct Release<'a> {
     pub restart: &'a str,
     pub releases: &'a [&'a str],
     pub packages: &'a [&'a str],
+    pub retired: &'a [&'a str],
 }
 
 pub struct Options<'a> {
@@ -60,12 +61,14 @@ impl Options<'_> {
                 restart: "reboot",
                 releases: &["0.4.0", "0.4.1", "0.4.2"],
                 packages: &["crownbar", "crowndock"],
+                retired: &[],
             },
             next: Some(Release {
                 version: "0.4.1",
                 restart: "soft-reboot",
                 releases: &["0.4.0", "0.4.1"],
                 packages: &["crownbar", "crowndock"],
+                retired: &[],
             }),
             post_update_exit_status: None,
             administrator: true,
@@ -282,11 +285,12 @@ fn manifest(release: &Release<'_>) -> String {
             .join(", ")
     };
     format!(
-        "version = \"{}\"\nbuild_id = \"fixture\"\nchannel = \"stable\"\nrestart = \"{}\"\nnotes = \"notes.md\"\nreleases = [{}]\npackages = [{}]\n",
+        "version = \"{}\"\nbuild_id = \"fixture\"\nchannel = \"stable\"\nrestart = \"{}\"\nnotes = \"notes.md\"\nreleases = [{}]\npackages = [{}]\nretired = [{}]\n",
         release.version,
         release.restart,
         quoted(release.releases),
-        quoted(release.packages)
+        quoted(release.packages),
+        quoted(release.retired)
     )
 }
 
@@ -365,6 +369,10 @@ fn write_tools(root: &Path) -> std::io::Result<()> {
     )?;
     write_script(
         &tools.join("systemctl"),
-        &format!("echo \"systemctl $*\" >> '{log}'\nif [ \"$1\" = show ]; then echo 0; fi\n"),
+        &format!(
+            "echo \"systemctl $*\" >> '{log}'\n\
+             if [ \"$1\" = show ]; then echo 0; fi\n\
+             if [ \"$1\" = preset ] && [ -e '{root_text}/fail/preset' ]; then echo 'Failed to preset unit' >&2; exit 1; fi\n"
+        ),
     )
 }

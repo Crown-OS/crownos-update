@@ -27,6 +27,9 @@ pub struct Paths {
     pub kernel_cmdline: PathBuf,
     pub rollback_stanza: PathBuf,
     pub post_update: PathBuf,
+    pub crownos_preset: PathBuf,
+    pub applied_presets: PathBuf,
+    pub unit_directories: [PathBuf; 2],
     pub boot_id: PathBuf,
     pub passwd: PathBuf,
     pub group: PathBuf,
@@ -65,6 +68,9 @@ impl Paths {
             kernel_cmdline: file("/etc/kernel/cmdline"),
             rollback_stanza: file("/efi/EFI/refind/crownos-rollback.conf"),
             post_update: file("/usr/lib/crownos/post-update"),
+            crownos_preset: file("/usr/lib/systemd/system-preset/80-crownos.preset"),
+            applied_presets: file("/var/lib/crownos/update/applied-presets"),
+            unit_directories: [file("/etc/systemd/system"), file("/usr/lib/systemd/system")],
             boot_id: file("/proc/sys/kernel/random/boot_id"),
             passwd: file("/etc/passwd"),
             group: file("/etc/group"),
@@ -109,6 +115,10 @@ mod tests {
             Path::new("/usr/bin/crownos-esp-kernel")
         );
         assert_eq!(paths.keyring.gpg, Path::new("/usr/bin/gpg"));
+        assert_eq!(
+            paths.applied_presets,
+            Path::new("/var/lib/crownos/update/applied-presets")
+        );
     }
 
     #[test]

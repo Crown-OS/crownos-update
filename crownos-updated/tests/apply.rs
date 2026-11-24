@@ -404,3 +404,134 @@ async fn a_session_restart_only_forgets_the_pending_restart() -> TestResult {
     );
     Ok(())
 }
+
+const PRESET: &str = "usr/lib/systemd/system-preset/80-crownos.preset";
+const APPLIED_PRESETS: &str = "var/lib/crownos/update/applied-presets";
+const PRESET_OF_THE_NEXT_RELEASE: &str = "# CrownOS\nenable NetworkManager.service\n\
+    enable systemd-timesyncd.service\nenable power-profiles-daemon.service\n\
+    enable snapper-cleanup.timer\nenable crownos-updated.service\n\
+    enable crownos-new.service\nenable crownos-of-a-removed-package.service\n";
+const NEW_UNIT_FILE: &str = "usr/lib/systemd/system/crownos-new.service";
+
+fn after_install(changes: &[&str]) -> Vec<String> {
+    let mut expected = before_install();
+    expected.extend(changes.iter().map(|change| (*change).to_owned()));
+    expected.extend([
+        "post-update 0.4.0 0.4.1".to_owned(),
+        SOFT_REBOOTS_QUERY.to_owned(),
+    ]);
+    expected
+}
+
+#[tokio::test]
+async fn installed_retired_packages_are_removed_before_the_post_update() -> TestResult {
+    let fixture = Fixture::start(&Options {
+        installed_packages: &["crownbar", "crownos-oldtool"],
+        next: Some(Release {
+            retired: &["crownos-oldtool", "crownos-never-installed"],
+            ..Options::chain().next.ok_or("no next release")?
+        }),
+        post_update_exit_status: Some(0),
+        ..Options::chain()
+    })?;
+    let (_client, snapshot) = update(&fixture).await?;
+    assert!(snapshot.failure.is_none(), "{:?}", snapshot.failure);
+    assert_eq!(
+        fixture.commands(),
+        after_install(&["pacman -Qq", "pacman -Rs --noconfirm -- crownos-oldtool"])
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_system_without_a_record_enables_only_units_the_old_installer_did_not() -> TestResult {
+    let fixture = Fixture::start(&Options {
+        post_update_exit_status: Some(0),
+        files: &[
+            (PRESET, PRESET_OF_THE_NEXT_RELEASE),
+            (NEW_UNIT_FILE, "[Unit]\n"),
+        ],
+        ..Options::chain()
+    })?;
+    let (_client, snapshot) = update(&fixture).await?;
+    assert!(snapshot.failure.is_none(), "{:?}", snapshot.failure);
+    assert_eq!(
+        fixture.commands(),
+        after_install(&["systemctl preset -- crownos-new.service"])
+    );
+    let record: Vec<String> = fixture
+        .read(APPLIED_PRESETS)
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(record.len(), 7, "{record:?}");
+    assert!(record.contains(&"crownos-of-a-removed-package.service".to_owned()));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_unit_in_the_record_is_not_enabled_again() -> TestResult {
+    let fixture = Fixture::start(&Options {
+        post_update_exit_status: Some(0),
+        files: &[
+            (PRESET, PRESET_OF_THE_NEXT_RELEASE),
+            (NEW_UNIT_FILE, "[Unit]\n"),
+            (
+                "usr/lib/systemd/system/power-profiles-daemon.service",
+                "[Unit]\n",
+            ),
+            (
+                APPLIED_PRESETS,
+                "NetworkManager.service\nsystemd-timesyncd.service\ncrownos-new.service\n",
+            ),
+        ],
+        ..Options::chain()
+    })?;
+    let (_client, snapshot) = update(&fixture).await?;
+    assert!(snapshot.failure.is_none(), "{:?}", snapshot.failure);
+    assert_eq!(
+        fixture.commands(),
+        after_install(&["systemctl preset -- power-profiles-daemon.service"])
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_failed_preset_fails_the_update_and_keeps_the_record() -> TestResult {
+    let fixture = Fixture::start(&Options {
+        post_update_exit_status: Some(0),
+        files: &[
+            (PRESET, PRESET_OF_THE_NEXT_RELEASE),
+            (NEW_UNIT_FILE, "[Unit]\n"),
+        ],
+        ..Options::chain()
+    })?;
+    fixture.fail("preset")?;
+    let (mut client, snapshot) = update(&fixture).await?;
+    let failure = snapshot.failure.ok_or("no failure")?;
+    assert_eq!(failure.step, FailedStep::Apply(ApplyStep::PostUpdate));
+    assert!(failure.rollback.is_some());
+    assert!(
+        failure.message.contains("Failed to preset unit"),
+        "{}",
+        failure.message
+    );
+    assert!(!fixture.exists(APPLIED_PRESETS));
+    assert!(!fixture.exists(APPLIED_MARKER));
+    assert!(
+        !fixture
+            .commands()
+            .contains(&"post-update 0.4.0 0.4.1".to_owned())
+    );
+
+    fixture.repair("preset")?;
+    client.apply().await?;
+    let snapshot = wait_for_the_end(&mut client, Some(&failure)).await?;
+    assert!(snapshot.failure.is_none(), "{:?}", snapshot.failure);
+    assert!(
+        fixture
+            .read(APPLIED_PRESETS)
+            .contains("crownos-new.service\n")
+    );
+    Ok(())
+}

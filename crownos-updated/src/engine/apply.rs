@@ -2,7 +2,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use anyhow::Context;
 use tokio::process::Command;
-use update_manifest::{ReleaseVersion, chain::channel_of};
+use update_manifest::{PackageName, ReleaseVersion, chain::channel_of};
 use update_proto::{ApplyStep, FailedStep, Failure, NextRelease, Phase, Rollback};
 
 use super::{
@@ -68,6 +68,7 @@ impl Engine {
                     to: next.version.clone(),
                     restart: next.restart,
                     new_packages: next.new_packages.clone(),
+                    retired_packages: self.retired_packages_of(&next).await,
                     rollback,
                     completed: ApplyStep::KeepKernel,
                 }
@@ -114,9 +115,24 @@ impl Engine {
             to: next.version.clone(),
             restart: next.restart,
             new_packages: next.new_packages.clone(),
+            retired_packages: self.retired_packages_of(next).await,
             rollback,
             completed: ApplyStep::KeepKernel,
         })
+    }
+
+    /// Read once, when the update starts: a later check can remove the saved manifest.
+    async fn retired_packages_of(&self, next: &NextRelease) -> Vec<PackageName> {
+        match self.store.load_next_manifest(&next.version).await {
+            Some(manifest) => manifest.retired,
+            None => {
+                tracing::warn!(
+                    "the saved manifest of {} is not available, so no package is retired",
+                    next.version
+                );
+                Vec::new()
+            }
+        }
     }
 
     /// Snapshot, kernel pair and rEFInd entry. A failure after the snapshot
@@ -185,7 +201,7 @@ impl Engine {
         }
         if start <= ApplyStep::PostUpdate {
             self.enter(ApplyStep::PostUpdate).await;
-            self.run_post_update(&update.from, &update.to)
+            self.post_update(&update)
                 .await
                 .recoverable_by(failed_at(ApplyStep::PostUpdate), &rollback)?;
             update.completed = ApplyStep::PostUpdate;
@@ -232,6 +248,15 @@ impl Engine {
         write_atomically(path, with_channel(&conf, channel_of(to))?.as_bytes())
             .await
             .with_context(|| format!("cannot write {}", path.display()))
+    }
+
+    /// The system changes that follow the transaction. Each one is safe to
+    /// run again when a failed update continues.
+    async fn post_update(&self, update: &InProgressUpdate) -> anyhow::Result<()> {
+        self.remove_retired_packages(&update.retired_packages)
+            .await?;
+        self.enable_new_preset_units().await?;
+        self.run_post_update(&update.from, &update.to).await
     }
 
     async fn run_post_update(
