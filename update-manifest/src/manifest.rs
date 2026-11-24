@@ -14,6 +14,9 @@ pub struct ReleaseManifest {
     pub notes: Option<NotesFileName>,
     pub releases: Vec<ReleaseVersion>,
     pub packages: Vec<PackageName>,
+    /// Packages of an earlier release that an updated system removes.
+    #[serde(default)]
+    pub retired: Vec<PackageName>,
 }
 
 #[derive(Debug, Error)]
@@ -81,6 +84,7 @@ restart = "soft-reboot"
 notes = "notes.md"
 releases = ["0.4.0", "0.4.1", "0.4.2"]
 packages = ["crownbar", "crownos-base"]
+retired = ["crownos-oldtool"]
 
 [[package]]
 name = "crownbar"
@@ -88,7 +92,7 @@ version = "0.3.0-1"
 "#;
 
     #[test]
-    fn parses_the_published_layout() -> Result<(), ManifestError> {
+    fn parses_the_published_layout() -> Result<(), Box<dyn std::error::Error>> {
         let manifest = ReleaseManifest::parse(PUBLISHED.as_bytes())?;
         assert_eq!(manifest.version.to_string(), "0.4.2");
         assert_eq!(manifest.channel, Channel::Stable);
@@ -98,7 +102,19 @@ version = "0.3.0-1"
             Some("notes.md")
         );
         assert_eq!(manifest.packages.len(), 2);
-        manifest.validate_chain()
+        assert_eq!(
+            manifest.retired,
+            [PackageName::try_from("crownos-oldtool")?]
+        );
+        Ok(manifest.validate_chain()?)
+    }
+
+    #[test]
+    fn a_manifest_without_retired_packages_retires_nothing() -> Result<(), ManifestError> {
+        let text = PUBLISHED.replace("retired = [\"crownos-oldtool\"]\n", "");
+        let manifest = ReleaseManifest::parse(text.as_bytes())?;
+        assert!(manifest.retired.is_empty());
+        Ok(())
     }
 
     #[test]
@@ -116,6 +132,7 @@ version = "0.3.0-1"
     fn hostile_names_are_rejected() {
         for (from, to) in [
             ("\"crownbar\", ", "\"--overwrite=*\", "),
+            ("\"crownos-oldtool\"", "\"-Rdd\""),
             ("\"notes.md\"", "\"../notes.md\""),
         ] {
             let text = PUBLISHED.replace(from, to);
