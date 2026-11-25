@@ -1,7 +1,5 @@
-use std::collections::HashSet;
-
 use anyhow::{Context, anyhow};
-use tokio::{process::Command, task::spawn_blocking};
+use tokio::task::spawn_blocking;
 use update_manifest::{
     Channel, PackageName, ReleaseManifest, ReleaseVersion, VerifiedManifest,
     chain::{channel_of, index_channel, installed_channel, next_release},
@@ -10,7 +8,7 @@ use update_manifest::{
 use update_proto::{DownloadStatus, FailedStep, NextRelease, Phase, UnixSeconds};
 
 use super::{AtStep, Engine, StepFailure};
-use crate::{paths::Paths, process::capture};
+use crate::{paths::Paths, utils::installed_packages::installed_packages};
 
 /// Notes travel inside every snapshot, which must fit one IPC frame.
 const MAX_NOTES_BYTES: usize = 32 * 1024;
@@ -108,8 +106,7 @@ impl Engine {
 
     /// The release's packages that this system does not have yet.
     async fn new_packages(&self, manifest: &ReleaseManifest) -> anyhow::Result<Vec<PackageName>> {
-        let listing = capture(Command::new(&self.paths.tools.pacman).arg("-Qq")).await?;
-        let installed: HashSet<&str> = listing.lines().map(str::trim).collect();
+        let installed = installed_packages(&self.paths.tools.pacman).await?;
         Ok(manifest
             .packages
             .iter()

@@ -133,6 +133,7 @@ mod tests {
             to: "0.4.1".parse()?,
             restart: RestartKind::Reboot,
             new_packages: Vec::new(),
+            retired_packages: Vec::new(),
             rollback: Rollback {
                 snapshot: SnapperNumber(7),
                 from: "0.4.0".parse()?,

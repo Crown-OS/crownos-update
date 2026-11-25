@@ -5,7 +5,7 @@ use std::{io, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tokio::fs;
-use update_manifest::{PackageName, ReleaseVersion, RestartKind};
+use update_manifest::{PackageName, ReleaseManifest, ReleaseVersion, RestartKind};
 use update_proto::{
     ApplyStep, DownloadStatus, Failure, InProgress, NextRelease, PendingRestart, Rollback,
     Snapshot, UnixSeconds,
@@ -58,6 +58,8 @@ pub struct InProgressUpdate {
     pub to: ReleaseVersion,
     pub restart: RestartKind,
     pub new_packages: Vec<PackageName>,
+    #[serde(default)]
+    pub retired_packages: Vec<PackageName>,
     pub rollback: Rollback,
     pub completed: ApplyStep,
 }
@@ -147,6 +149,16 @@ impl Store {
             Some(notes) => self.write(NEXT_NOTES_FILE, notes.as_bytes()).await,
             None => remove_if_present(self.file(NEXT_NOTES_FILE)).await,
         }
+    }
+
+    /// The signed manifest that `save_next` kept, when it describes `version`.
+    pub async fn load_next_manifest(&self, version: &ReleaseVersion) -> Option<ReleaseManifest> {
+        let path = self.file(NEXT_MANIFEST_FILE);
+        let bytes = fs::read(&path).await.ok()?;
+        ReleaseManifest::parse(&bytes)
+            .inspect_err(|error| tracing::warn!("ignoring {}: {error}", path.display()))
+            .ok()
+            .filter(|manifest| manifest.version == *version)
     }
 
     pub async fn clear_next(&self) -> io::Result<()> {
@@ -278,6 +290,7 @@ mod tests {
             to: "0.4.1".parse()?,
             restart: RestartKind::Session,
             new_packages: vec![PackageName::try_from("crowndock")?],
+            retired_packages: vec![PackageName::try_from("crownos-oldtool")?],
             rollback: Rollback {
                 snapshot: SnapperNumber(7),
                 from: "0.4.0".parse()?,
@@ -290,6 +303,36 @@ mod tests {
         assert_eq!(store.load_in_progress().await, Some(update));
         store.clear_in_progress().await?;
         assert_eq!(store.load_in_progress().await, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_record_without_retired_packages_retires_nothing()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        let store = store(directory.path());
+        std::fs::create_dir_all(&store.directory)?;
+        std::fs::write(
+            store.file(IN_PROGRESS_FILE),
+            "from = \"0.4.0\"\nto = \"0.4.1\"\nrestart = \"session\"\nnew_packages = []\n\
+             completed = \"install\"\n\n[rollback]\nsnapshot = 7\nfrom = \"0.4.0\"\n",
+        )?;
+        let update = store.load_in_progress().await.ok_or("no record")?;
+        assert!(update.retired_packages.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_next_manifest_is_read_only_for_its_own_version()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        let store = store(directory.path());
+        let manifest = "version = \"0.4.1\"\nbuild_id = \"b\"\nchannel = \"stable\"\n\
+                        releases = [\"0.4.1\"]\npackages = []\nretired = [\"crownos-oldtool\"]\n";
+        store.save_next(manifest.as_bytes(), None).await?;
+        let loaded = store.load_next_manifest(&"0.4.1".parse()?).await;
+        assert_eq!(loaded.map(|manifest| manifest.retired.len()), Some(1));
+        assert!(store.load_next_manifest(&"0.4.2".parse()?).await.is_none());
         Ok(())
     }
 }
